@@ -396,3 +396,10 @@ Todas se alojan en la base MySQL indicada por `DATABASE_URL`:
 Las pruebas automáticas continúan usando una base SQLite en memoria, aislada y
 descartable. Esa ruta sólo existe bajo `TESTING` y nunca se utiliza al ejecutar
 `python app.py`.
+
+## Integridad y revisión del flujo
+
+Las validaciones y pruebas de robustez, los permisos afectados, el criterio
+histórico de los reportes y las instrucciones de prueba con MySQL están en
+[docs/revision-integridad.md](docs/revision-integridad.md).
+No se requieren migraciones para estas correcciones.
