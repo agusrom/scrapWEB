@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-head">
   <div><span class="eyebrow">Historial</span><h1>Declaraciones</h1></div>
-  <a class="btn btn-primary" href="{{ url_for('declaracion_nueva') }}">＋ Nueva declaración</a>
+  {% if rol_actual == 'ADMIN' %}<a class="btn btn-primary" href="{{ url_for('declaracion_nueva') }}">＋ Nueva declaración</a>{% endif %}
 </div>
 <section class="panel">
   {% if declaraciones %}
@@ -20,14 +20,14 @@
           <td>{{ '%g'|format(declaracion.cantidad_scrap) }}</td>
           <td>{{ '%g'|format(declaracion.cantidad_retrabajo_pendiente) }}</td>
           <td><span class="status status-{{ declaracion.estado|lower }}">{{ declaracion.estado|replace('_', ' ') }}</span></td>
-          <td class="admin-history-actions"><a class="table-link" href="{{ url_for('declaracion_detalle', declaracion_id=declaracion.id) }}">Abrir</a><a class="table-link" href="{{ url_for('declaracion_editar', declaracion_id=declaracion.id) }}">Editar</a></td>
+          <td class="admin-history-actions"><a class="table-link" href="{{ url_for('declaracion_detalle', declaracion_id=declaracion.id) }}">Abrir</a>{% if rol_actual == 'ADMIN' %}<a class="table-link" href="{{ url_for('declaracion_editar', declaracion_id=declaracion.id) }}">Editar</a>{% endif %}</td>
         </tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <div class="empty"><span>▤</span><h2>Todavía no hay declaraciones</h2><p>Creá la primera para comenzar.</p></div>
+  <div class="empty"><span>▤</span><h2>Todavía no hay declaraciones</h2><p>{{ 'Creá la primera para comenzar.' if rol_actual == 'ADMIN' else 'Todavía no hay información para consultar.' }}</p></div>
   {% endif %}
 </section>
 {% endblock %}

@@ -429,6 +429,7 @@ NOMBRES_ROL = {
     "CALIDAD": "Calidad",
     "LOGISTICA": "Logística",
     "ADMIN": "Administración",
+    "CONSULTA": "Consulta y análisis",
 }
 
 
@@ -482,6 +483,8 @@ def create_app(test_config=None):
             validar_fuentes_mysql(app)
 
     registrar_rutas(app)
+    from analisis import crear_blueprint
+    app.register_blueprint(crear_blueprint(db, Declaracion, DeclaracionItem, Motivo, RetrabajoIntervencion))
     return app
 
 
@@ -1468,6 +1471,7 @@ def registrar_rutas(app):
             "CALIDAD": "calidad_bandeja",
             "LOGISTICA": "logistica_inicio",
             "ADMIN": "inicio",
+            "CONSULTA": "analisis.panel",
         }.get(rol, "login")
 
     def espera_json():
@@ -1504,6 +1508,12 @@ def registrar_rutas(app):
             abort(403)
         if usuario.rol == "ADMIN" or request.path == "/":
             return None
+        if usuario.rol == "CONSULTA":
+            lectura = {"analisis.panel", "analisis.excel", "declaraciones", "declaracion_detalle",
+                       "reporte_scrap", "reporte_scrap_excel"}
+            if request.method in {"GET", "HEAD"} and request.endpoint in lectura:
+                return None
+            abort(403)
         if request.endpoint == "produccion_nueva" and usuario.rol == "PRODUCCION":
             if request.method == "GET":
                 return redirect(url_for("produccion_alerta"))
@@ -3005,6 +3015,33 @@ def registrar_rutas(app):
             db.select(Usuario).order_by(Usuario.id)
         ).scalars().all()
         return render_template("gestion_usuarios.html", usuarios=usuarios)
+
+    @app.post("/gestion/usuarios/consulta")
+    def gestion_usuario_consulta():
+        from sqlalchemy.exc import IntegrityError
+        nombre_usuario = str(request.form.get("usuario", "")).strip().lower()
+        nombre = str(request.form.get("nombre", "")).strip()
+        clave = str(request.form.get("clave", ""))
+        if not re.fullmatch(r"[a-z0-9_.-]{1,40}", nombre_usuario):
+            flash("El usuario debe tener hasta 40 letras sin acentos, números, puntos, guiones o guiones bajos.", "error")
+        elif not nombre or len(nombre) > 120:
+            flash("Completá un nombre de hasta 120 caracteres.", "error")
+        elif not 8 <= len(clave) <= 72 or clave != request.form.get("confirmacion"):
+            flash("Ingresá y repetí una contraseña de entre 8 y 72 caracteres.", "error")
+        elif db.session.execute(db.select(Usuario.id).where(Usuario.usuario == nombre_usuario)).scalar_one_or_none():
+            flash("Ese nombre de usuario ya existe.", "error")
+        else:
+            cuenta = Usuario(usuario=nombre_usuario, nombre=nombre, rol="CONSULTA", activo=True, clave_hash="")
+            cuenta.cambiar_clave(clave)
+            db.session.add(cuenta)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                flash("Ese nombre de usuario ya existe.", "error")
+            else:
+                flash("Usuario de consulta creado. Solo puede visualizar, imprimir y exportar.", "ok")
+        return redirect(url_for("gestion_usuarios"))
 
     @app.post("/gestion/usuarios/<int:usuario_id>/clave")
     def gestion_usuario_clave(usuario_id):

@@ -665,3 +665,36 @@ def validar_hcp(codigo_pieza, operacion, hcp, es_materia_prima=False):
     with engine_productivo().connect() as conexion:
         fila = conexion.execute(sql, parametros).first()
         return dict(fila._mapping) if fila else None
+
+
+def normalizar_operacion(valor):
+    """Compara códigos de operación textuales sin perder los no numéricos."""
+    codigo = str(valor or "").strip().upper()
+    return (codigo.lstrip("0") or "0") if re.fullmatch(r"[0-9]+", codigo) else codigo
+
+
+def produccion_por_operacion(desde, hasta):
+    """Piezas buenas por fecha, código y operación; exclusivamente SELECT."""
+    from datetime import timedelta
+
+    if modo_demo():
+        return []  # No inventar cantidades productivas para calcular porcentajes.
+    fecha = identificador("PRODUCCION_FECHA_COL", "FPRO_")
+    cantidad = identificador("PRODUCCION_CANTIDAD_COL", "CANT_")
+    operacion = identificador("PRODUCCION_OPERACION_COL", "NPRO_")
+    pieza = identificador("PRODUCCION_PIEZA_COL", "GCOD_")
+    sql = text(f"""
+        SELECT DATE({qid(fecha)}) AS fecha,
+               TRIM({qid(pieza)}) AS codigo,
+               TRIM({qid(operacion)}) AS operacion,
+               SUM({qid(cantidad)}) AS cantidad,
+               COUNT(*) - COUNT({qid(cantidad)}) AS sin_cantidad
+        FROM {tabla("PRODUCCION_TABLE", "produc04")}
+        WHERE {qid(fecha)} >= :desde AND {qid(fecha)} < :hasta
+        GROUP BY DATE({qid(fecha)}), TRIM({qid(pieza)}), TRIM({qid(operacion)})
+        ORDER BY fecha, codigo, operacion
+    """)
+    with engine_productivo().connect() as conexion:
+        return [dict(fila._mapping) for fila in conexion.execute(
+            sql, {"desde": desde, "hasta": hasta + timedelta(days=1)}
+        )]

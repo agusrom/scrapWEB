@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block body_class %}analisis-page{% endblock %}
+{% block title %}Análisis de scrap{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><span class="eyebrow">Consulta y análisis</span><h1>Scrap y producción</h1><p>Comparación por pieza y operación. Buenas y scrap corresponden al mismo rango de fechas.</p></div>
+  <a class="btn btn-primary" href="{{ url_for('analisis.excel', **request.args.to_dict()) }}">↓ Exportar Excel</a>
+</div>
+{% if modo_demo %}<div class="alert alert-warning">Modo de prueba activo. Las declaraciones pueden ser de ejemplo; no se simulan cantidades producidas.</div>{% endif %}
+{% if not datos.produccion_disponible %}<div class="alert alert-error">No se pudo consultar la producción. Se muestra el scrap registrado, con cantidades producidas y porcentajes sin datos. Avisá a Administración.</div>{% endif %}
+<form id="analysis-filters" class="panel report-filters" method="get">
+  <div class="report-filter-grid">
+    <label>Desde<input type="date" name="desde" value="{{ filtros.desde.isoformat() }}" required></label>
+    <label>Hasta<input type="date" name="hasta" value="{{ filtros.hasta.isoformat() }}" required></label>
+    <label>Código de pieza<input name="pieza" value="{{ filtros.pieza }}" placeholder="Todos los códigos"></label>
+    <label>Operación<input name="operacion" value="{{ filtros.operacion }}" placeholder="Todas; ej. 010"></label>
+    <label>Unidad<input name="unidad" value="{{ filtros.unidad }}" maxlength="10" required></label>
+    <label>Fecha del scrap<select name="fecha"><option value="EVENTO" {{ 'selected' if filtros.fecha == 'EVENTO' }}>Decisión / resultado del retrabajo</option><option value="DNC" {{ 'selected' if filtros.fecha == 'DNC' }}>Emisión de la DNC</option></select></label>
+    <label>Origen del scrap<select name="origen_scrap">{% for valor, texto in [('TODOS','Directo + retrabajo'),('DIRECTO','Directo'),('RETRABAJO','Retrabajo')] %}<option value="{{ valor }}" {{ 'selected' if filtros.origen_scrap == valor }}>{{ texto }}</option>{% endfor %}</select></label>
+    {% for campo, etiqueta in [('celula','Célula de detección'),('equipo','Equipo'),('turno','Turno'),('motivo','Causa'),('cliente','Cliente'),('proveedor','Proveedor informado')] %}
+    <label>{{ etiqueta }}<input name="{{ campo }}" value="{{ filtros[campo] }}" placeholder="Todos"></label>
+    {% endfor %}
+    <label>Estado DNC<select name="estado"><option value="">Todos</option>{% for estado in ['ABIERTA','PENDIENTE_CALIDAD','PENDIENTE_LOGISTICA','PENDIENTE_RETRABAJO','RESUELTA_PARCIAL','PENDIENTE_INVESTIGACION','CERRADA'] %}<option value="{{ estado }}" {{ 'selected' if filtros.estado == estado }}>{{ estado|replace('_',' ') }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="report-filter-actions"><a class="btn btn-light" href="{{ url_for('analisis.panel') }}">Limpiar</a><button class="btn btn-primary">Aplicar filtros</button></div>
+</form>
+<section class="panel analysis-notes">
+  <p><strong>% scrap = scrap / (buenas + scrap) × 100.</strong> Se calcula por pieza y operación, sin sumar operaciones sucesivas como piezas distintas. Incluye material consumido en ensayos.</p>
+  <p>La fecha del scrap directo es la última validación guardada; una revalidación puede cambiar su período. No existe un historial inmutable de decisiones.</p>
+  <p>La tasa compara movimientos del período; no identifica el lote o la fecha de fabricación de las piezas descartadas. El scrap de retrabajo se vincula con la operación original del renglón.</p>
+  {% if not datos.comparable %}<p><strong>Porcentaje sin comparación:</strong> producción no dispone de los desgloses adicionales seleccionados. Para comparar, usá unidad PZS, fecha de decisión/resultado y scrap directo + retrabajo; filtrá solo por código y operación.</p>{% endif %}
+  <p>Scrap corresponde a la disposición registrada: directo más scrap final de retrabajos. La cantidad recibida por Logística no se vuelve a sumar.</p>
+  <p>El filtro de origen selecciona el scrap. Recuperadas y horas describen los trabajos registrados, y los pendientes muestran su situación actual.</p>
+  <p>Una operación sin producción registrada aparece como «Sin datos», aunque tenga scrap. Los renglones sin operación no se vinculan arbitrariamente con otra etapa.</p>
+</section>
+<div class="summary-grid">
+  <div class="metric danger"><span>Scrap total</span><strong>{{ '%.3f'|format(datos.resumen.scrap) }}</strong><small>{{ filtros.unidad }}</small></div>
+  <div class="metric"><span>Scrap directo</span><strong>{{ '%.3f'|format(datos.resumen.directo) }}</strong><small>{{ filtros.unidad }}</small></div>
+  <div class="metric"><span>Scrap de retrabajo</span><strong>{{ '%.3f'|format(datos.resumen.retrabajo) }}</strong><small>{{ filtros.unidad }}</small></div>
+  <div class="metric"><span>DNC con scrap</span><strong>{{ datos.resumen.dnc }}</strong><small>En el rango y filtros elegidos</small></div>
+</div>
+<div class="summary-grid">
+  <div class="metric success"><span>Recuperadas en retrabajo</span><strong>{{ '%.3f'|format(datos.resumen.recuperadas) }}</strong><small>{{ filtros.unidad }} · {{ '%.2f'|format(datos.resumen.horas) }} horas-hombre</small></div>
+  <div class="metric"><span>Recuperación de retrabajos</span><strong>{{ ('%.2f'|format(datos.resumen.recuperacion) ~ '%') if datos.resumen.recuperacion is not none else 'Sin datos' }}</strong><small>Sobre resultados registrados en el período</small></div>
+  <div class="metric warning"><span>Retrabajo pendiente actual</span><strong>{{ '%.3f'|format(datos.resumen.pendiente) }}</strong><small>De las DNC emitidas en el período</small></div>
+  <div class="metric"><span>Control logístico actual</span><strong>{{ datos.controles.pendientes }}</strong><small>Pendientes · {{ datos.controles.diferencias }} con diferencias · DNC emitidas en el período</small></div>
+</div>
+<section class="panel">
+  <div class="panel-head"><div><h2>Comparación por pieza y operación</h2><p>{{ datos.comparacion|length }} combinaciones · ordenadas por scrap. No se calcula un porcentaje global mezclando operaciones.</p></div></div>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Pieza / descripción</th><th>Operación</th><th>Buenas</th><th>Directo</th><th>Retrabajo</th><th>Scrap total</th><th>% scrap</th></tr></thead>
+    <tbody>{% for fila in filas %}<tr>
+      <td><strong>{{ fila.pieza }}</strong><br><small>{{ fila.descripcion }}</small></td><td>{{ fila.operacion.zfill(3) if fila.operacion.isascii() and fila.operacion.isdigit() else (fila.operacion or 'Sin operación') }}</td>
+      <td>{{ '%.3f'|format(fila.buenas) if fila.buenas is not none else 'Sin datos' }}</td>
+      <td>{{ '%.3f'|format(fila.directo) }}</td><td>{{ '%.3f'|format(fila.retrabajo) }}</td><td><strong>{{ '%.3f'|format(fila.scrap) }}</strong></td>
+      <td>{{ ('%.2f'|format(fila.porcentaje) ~ '%') if fila.porcentaje is not none else 'Sin datos' }}{% if fila.nota %}<br><small>{{ fila.nota }}</small>{% endif %}</td>
+    </tr>{% else %}<tr><td colspan="7">No hay registros para los filtros seleccionados.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <div class="report-filter-actions">
+    {% set args = request.args.to_dict() %}
+    {% if pagina > 1 %}{% set _ = args.update({'pagina': pagina - 1}) %}<a class="btn btn-light" href="{{ url_for('analisis.panel', **args) }}">← Anterior</a>{% endif %}
+    <span>Página {{ pagina }} · hasta 100 filas por página</span>
+    {% if hay_mas %}{% set _ = args.update({'pagina': pagina + 1}) %}<a class="btn btn-light" href="{{ url_for('analisis.panel', **args) }}">Siguiente →</a>{% endif %}
+  </div>
+</section>
+<div class="analysis-charts">
+  <section class="panel"><h2>Principales causas de scrap</h2><p>Hasta 10 causas; todas se incluyen en el Excel.</p>
+    {% for fila in datos.pareto[:10] %}<div class="analysis-bar"><strong>{{ fila.causa }}</strong><meter min="0" max="100" value="{{ fila.porcentaje }}">{{ fila.porcentaje }}%</meter><span>{{ '%.3f'|format(fila.cantidad) }} {{ filtros.unidad }} · acumulado {{ '%.1f'|format(fila.acumulado) }}%</span></div>{% else %}<p>Sin scrap en este período.</p>{% endfor %}
+  </section>
+  <section class="panel"><h2>Evolución del scrap</h2><p>Últimos 31 días con movimientos; toda la serie se incluye en el Excel.</p>
+    {% for fila in datos.tendencia[-31:] %}<div class="analysis-bar"><strong>{{ fila.fecha.strftime('%d/%m/%Y') }}</strong><meter min="0" max="{{ datos.resumen.scrap or 1 }}" value="{{ fila.directo + fila.retrabajo }}">{{ fila.directo + fila.retrabajo }}</meter><span>Directo {{ '%.3f'|format(fila.directo) }} · retrabajo {{ '%.3f'|format(fila.retrabajo) }}</span></div>{% else %}<p>Sin movimientos para mostrar.</p>{% endfor %}
+  </section>
+</div>
+<div class="analysis-charts">
+  <section class="panel"><h2>Dónde se detecta</h2><p>Hasta 10 combinaciones de célula, equipo y turno.</p>
+    {% for fila in datos.deteccion[:10] %}<div class="analysis-bar"><strong>{{ fila.celula }} · {{ fila.equipo }} · {{ fila.turno or 'Sin turno' }}</strong><span>{{ '%.3f'|format(fila.scrap) }} {{ filtros.unidad }}</span></div>{% else %}<p>Sin datos para mostrar.</p>{% endfor %}
+  </section>
+  <section class="panel"><h2>Responsabilidad atribuida</h2><p>Se distinguen las conclusiones confirmadas, probables y pendientes. No se confunde el lugar de detección con el responsable.</p>
+    {% for fila in datos.responsabilidad[:10] %}<div class="analysis-bar"><strong>{{ fila.responsable }} · {{ fila.conclusion|replace('_', ' ') }}</strong><span>{{ '%.3f'|format(fila.scrap) }} {{ filtros.unidad }}</span></div>{% else %}<p>Sin datos para mostrar.</p>{% endfor %}
+  </section>
+</div>
+<section class="panel"><h2>Detalle trazable</h2><p>Últimos 100 movimientos. El Excel incluye todos los resultados filtrados. Se distingue la célula que detecta del responsable atribuido.</p>
+  <div class="table-wrap"><table><thead><tr><th>Fecha análisis</th><th>DNC</th><th>Pieza / HCP</th><th>Operación</th><th>Scrap</th><th>Causa</th><th>Detección / responsabilidad</th></tr></thead><tbody>
+    {% for fila in detalle %}<tr><td>{{ fila.fecha.strftime('%d/%m/%Y') }}</td><td><a class="table-link" href="{{ url_for('declaracion_detalle', declaracion_id=fila.declaracion_id) }}">{{ fila.dnc }}</a></td><td>{{ fila.pieza }}<br><small>HCP {{ fila.hcp }}</small></td><td>{{ fila.operacion or 'Sin operación' }}</td><td>{{ '%.3f'|format(fila.cantidad) }} {{ filtros.unidad }}<br><small>{{ fila.origen|replace('_',' ') }}</small></td><td>{{ fila.motivo }}</td><td>{{ fila.celula }}<br><small>Responsable: {{ fila.responsable }} · {{ fila.responsabilidad }}</small></td></tr>{% else %}<tr><td colspan="7">No hay scrap registrado para mostrar.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+<script src="{{ url_for('static', filename='js/analisis.js') }}"></script>
+{% endblock %}

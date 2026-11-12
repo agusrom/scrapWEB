@@ -5,7 +5,7 @@
   <a class="btn btn-light" href="{{ url_for(endpoint_volver|default('declaraciones')) }}">← Volver</a>
   <div class="button-group">
     {% if rol_actual == 'ADMIN' %}<a class="btn btn-light" href="{{ url_for('declaracion_editar', declaracion_id=declaracion.id) }}">Editar declaración</a>{% endif %}
-    {% if mostrar_retrabajo|default(true) and declaracion.cantidad_retrabajo_pendiente > 0 %}<a class="btn btn-light" href="{{ url_for(endpoint_retrabajo|default('retrabajos')) }}">Registrar retrabajo</a>{% endif %}
+    {% if rol_actual in ['ADMIN', 'PRODUCCION'] and mostrar_retrabajo|default(true) and declaracion.cantidad_retrabajo_pendiente > 0 %}<a class="btn btn-light" href="{{ url_for(endpoint_retrabajo|default('retrabajos')) }}">Registrar retrabajo</a>{% endif %}
     <button class="btn btn-primary" onclick="window.print()">Imprimir versión actual</button>
   </div>
 </div>

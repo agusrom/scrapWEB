@@ -1043,3 +1043,20 @@ input[readonly] { background: #f3f5f7; color: #475467; }
   .compact-signatures { min-height: 48px; padding: 22px 12px 5px; break-inside: avoid; page-break-inside: avoid; }
   .print-document-footer { padding: 2px 6px; font-size: 6px; }
 }
+
+/* Análisis de consulta: gráficos sin dependencias y tablas desplazables. */
+.analysis-notes p { color: var(--muted); line-height: 1.5; }
+.analysis-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.analysis-charts .panel { min-width: 0; }
+.analysis-bar { display: grid; gap: 5px; margin: 14px 0; overflow-wrap: anywhere; }
+.analysis-bar meter { width: 100%; height: 20px; accent-color: var(--blue); }
+.analysis-bar span { color: var(--muted); font-size: 12px; }
+@media (max-width: 800px) { .analysis-charts { grid-template-columns: 1fr; } }
+.analisis-page .page-head { flex-wrap: wrap; }
+.analisis-page .page-head > div { min-width: 0; flex: 1 1 260px; }
+.analisis-page .page-head > a { flex-shrink: 0; }
+@media (max-width: 600px) {
+  .analisis-page .workspace-topbar { flex-wrap: wrap; gap: 8px; }
+  .analisis-page .workspace-profile strong { overflow-wrap: anywhere; }
+}
+.analisis-page .report-filter-actions { flex-wrap: wrap; }

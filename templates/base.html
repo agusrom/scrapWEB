@@ -9,9 +9,13 @@
 <body class="{% block body_class %}{% endblock %}">
 <div class="app-shell">
   <aside class="system-sidebar no-print">
-    <a class="sidebar-brand" href="{{ url_for('calidad_bandeja' if rol_actual == 'CALIDAD' else 'inicio') }}">NC</a>
+    <a class="sidebar-brand" href="{{ url_for('analisis.panel' if rol_actual == 'CONSULTA' else ('calidad_bandeja' if rol_actual == 'CALIDAD' else 'inicio')) }}">NC</a>
     <nav>
-      {% if rol_actual == 'CALIDAD' %}
+      {% if rol_actual == 'CONSULTA' %}
+      <a href="{{ url_for('analisis.panel') }}"><span>▥</span><small>Análisis</small></a>
+      <a href="{{ url_for('declaraciones') }}"><span>▤</span><small>DNC</small></a>
+      <a href="{{ url_for('reporte_scrap') }}"><span>▦</span><small>Componentes</small></a>
+      {% elif rol_actual == 'CALIDAD' %}
       <a class="{{ 'active' if request.path == '/calidad' or '/validar' in request.path }}" href="{{ url_for('calidad_bandeja') }}"><span>✓</span><small>Calidad</small></a>
       <a class="{{ 'active' if request.path == '/calidad/scrap/nuevo' }}" href="{{ url_for('calidad_scrap_nuevo') }}"><span>＋</span><small>Declarar scrap</small></a>
       <a class="{{ 'active' if request.path.startswith('/calidad/declaraciones') }}" href="{{ url_for('calidad_declaraciones') }}"><span>▤</span><small>Declaraciones</small></a>
@@ -20,11 +24,12 @@
       <a class="{{ 'active' if request.path.startswith('/calidad') }}" href="{{ url_for('calidad_bandeja') }}"><span>✓</span><small>Calidad</small></a>
       <a class="{{ 'active' if request.path.startswith('/retrabajos') }}" href="{{ url_for('retrabajos') }}"><span>↻</span><small>Retrabajos</small></a>
       <a class="{{ 'active' if request.path.startswith('/declaraciones') or request.path.startswith('/vales') }}" href="{{ url_for('declaraciones') }}"><span>▤</span><small>Historial</small></a>
+      <a href="{{ url_for('analisis.panel') }}"><span>▥</span><small>Análisis</small></a>
       <a class="{{ 'active' if request.path.startswith('/reportes') }}" href="{{ url_for('reporte_scrap') }}"><span>▥</span><small>Reportes</small></a>
       <a href="{{ url_for('produccion_inicio') }}"><span>＋</span><small>Producción</small></a>
       {% endif %}
     </nav>
-    {% if rol_actual != 'CALIDAD' %}
+    {% if rol_actual == 'ADMIN' %}
     <a class="sidebar-settings {{ 'active' if request.path.startswith('/gestion/') }}" href="{{ url_for('gestion_configuracion') }}">⚙</a>
     {% endif %}
   </aside>
@@ -32,7 +37,7 @@
     <header class="workspace-topbar no-print">
       <div>{{ nombre_rol_actual or 'Administración' }} <b>›</b> <span>Material no conforme</span></div>
       <div class="workspace-user-area">
-        <div class="workspace-profile"><span>{{ 'CA' if rol_actual == 'CALIDAD' else 'AD' }}</span><div><strong>{{ usuario_actual.nombre if usuario_actual else nombre_rol_actual }}</strong><small>{{ 'Validación' if rol_actual == 'CALIDAD' else 'Gestión' }}</small></div></div>
+        <div class="workspace-profile"><span>{{ 'CO' if rol_actual == 'CONSULTA' else ('CA' if rol_actual == 'CALIDAD' else 'AD') }}</span><div><strong>{{ usuario_actual.nombre if usuario_actual else nombre_rol_actual }}</strong><small>{{ 'Solo lectura' if rol_actual == 'CONSULTA' else ('Validación' if rol_actual == 'CALIDAD' else 'Gestión') }}</small></div></div>
         {% if usuario_actual %}<form method="post" action="{{ url_for('logout') }}"><button class="session-logout" title="Cerrar sesión">Salir</button></form>{% endif %}
       </div>
     </header>

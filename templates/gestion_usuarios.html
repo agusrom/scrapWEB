@@ -20,4 +20,15 @@
   </article>
   {% endfor %}
 </section>
+<section class="panel form-section">
+  <h2>Crear usuario de consulta</h2>
+  <p>Puede consultar análisis y DNC, imprimir y exportar. No puede modificar datos.</p>
+  <form method="post" action="{{ url_for('gestion_usuario_consulta') }}" class="form-grid">
+    <label>Usuario<input name="usuario" maxlength="40" pattern="[a-z0-9_.-]+" required autocomplete="off"></label>
+    <label>Nombre<input name="nombre" maxlength="120" required></label>
+    <label>Contraseña<input name="clave" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <label>Repetir contraseña<input name="confirmacion" type="password" minlength="8" maxlength="72" required autocomplete="new-password"></label>
+    <button class="btn btn-primary">Crear usuario de consulta</button>
+  </form>
+</section>
 {% endblock %}
