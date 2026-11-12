@@ -240,11 +240,19 @@
     const sum = [...row.querySelectorAll("[data-qty]")].reduce(
       (acc, input) => acc + n(input.value), 0
     );
-    const quantityOk = Math.abs(sum - total) < 0.0001;
+    const inputs = [...row.querySelectorAll("[data-qty]")];
+    const resolved = n(row.dataset.reworkResolved);
+    const quantityOk = inputs.every(input => input.value !== "" && input.validity.valid
+      && Number.isFinite(Number(input.value)) && Number(input.value) >= 0
+      && (row.dataset.unit !== "PZS" || Number.isInteger(Number(input.value))))
+      && n(row.querySelector('[data-qty="RETRABAJO"]').value) >= resolved
+      && Math.abs(sum - total) < 0.0001;
     const check = row.querySelector("[data-quantity-check]");
     check.textContent = quantityOk
       ? `Correcto: ${sum.toLocaleString("es-AR")}`
-      : `Faltan distribuir ${Math.abs(total - sum).toFixed(3)}`;
+      : (n(row.querySelector('[data-qty="RETRABAJO"]').value) < resolved
+        ? `Ya se procesaron ${resolved} unidades de retrabajo.`
+        : "Revisá las cantidades: deben ser válidas y sumar el total informado.");
     check.classList.toggle("ok", quantityOk);
     updateDestinationSummary(row);
 

@@ -30,11 +30,11 @@
   </section>
 
   <section class="panel form-section">
-    <div class="section-title"><span>2</span><div><h2>Renglones de la declaración</h2><p>Las cantidades se validan nuevamente antes de guardar.</p></div></div>
+    <div class="section-title"><span>2</span><div><h2>Renglones de la declaración</h2><p>Las cantidades se validan nuevamente antes de guardar. Cambiar pieza, HCP, operación o scrap deja pendiente un nuevo control de Logística.</p></div></div>
     <div class="admin-edit-items">
     {% for item in declaracion.items %}
       {% set p = 'item_' ~ item.id ~ '_' %}
-      <details class="admin-edit-item" {{ 'open' if loop.first }}>
+      <details data-admin-item data-resolved="{{ item.cantidad_retrabajo_resuelta }}" class="admin-edit-item" {{ 'open' if loop.first }}>
         <summary>
           <span>RENGLÓN {{ loop.index }}</span>
           <strong>{{ item.codigo_pieza }}</strong>
@@ -52,11 +52,11 @@
               <label>Descripción operación<input name="{{ p }}operacion_descripcion" value="{{ item.operacion_descripcion or '' }}"></label>
               <label>HCP / lote<input name="{{ p }}trazabilidad" inputmode="numeric" value="{{ item.trazabilidad }}" required></label>
               <label>Unidad<input name="{{ p }}unidad" value="{{ item.unidad }}" required></label>
-              <label>Cantidad informada<input type="number" min="1" step="1" name="{{ p }}cantidad_detectada" value="{{ '%g'|format(item.cantidad_detectada) }}" required></label>
-              {% if declaracion.fecha_validacion %}
-              <label>Scrap<input type="number" min="0" step="1" name="{{ p }}cantidad_scrap_directo" value="{{ '%g'|format(item.cantidad_scrap_directo) }}" required></label>
-              <label>Retrabajo<input type="number" min="0" step="1" name="{{ p }}cantidad_a_retrabajo" value="{{ '%g'|format(item.cantidad_a_retrabajo) }}" required></label>
-              <label>Liberadas<input type="number" min="0" step="1" name="{{ p }}cantidad_liberada" value="{{ '%g'|format(item.cantidad_liberada) }}" required></label>
+              <label>Cantidad informada<input type="number" min="{{ 1 if item.unidad == 'PZS' else '0.001' }}" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" name="{{ p }}cantidad_detectada" value="{{ '%g'|format(item.cantidad_detectada) }}" required></label>
+              {% if declaracion.fecha_validacion or declaracion.estado != 'PENDIENTE_CALIDAD' %}
+              <label>Scrap<input type="number" min="0" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" name="{{ p }}cantidad_scrap_directo" value="{{ '%g'|format(item.cantidad_scrap_directo) }}" required></label>
+              <label>Retrabajo<input type="number" min="0" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" name="{{ p }}cantidad_a_retrabajo" value="{{ '%g'|format(item.cantidad_a_retrabajo) }}" required></label>
+              <label>Liberadas<input type="number" min="0" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" name="{{ p }}cantidad_liberada" value="{{ '%g'|format(item.cantidad_liberada) }}" required></label>
               {% endif %}
             </div>
           </fieldset>
@@ -101,7 +101,7 @@
             <legend>Control de Logística</legend>
             <label class="admin-check"><input type="checkbox" name="{{ p }}requiere_validacion_logistica" value="1" {{ 'checked' if item.requiere_validacion_logistica }}> Este renglón requiere validación de Logística</label>
             <div class="admin-edit-grid three">
-              <label>Cantidad validada<input type="number" min="0" step="1" name="{{ p }}cantidad_scrap_validada_logistica" value="{{ '%g'|format(item.cantidad_scrap_validada_logistica) if item.cantidad_scrap_validada_logistica is not none else '' }}"></label>
+              <label>Cantidad validada<input type="number" min="0" step="1" max="999999999" name="{{ p }}cantidad_scrap_validada_logistica" value="{{ '%g'|format(item.cantidad_scrap_validada_logistica) if item.cantidad_scrap_validada_logistica is not none else '' }}"></label>
               <label>Legajo de Logística<input name="{{ p }}legajo_logistica" data-legajo value="{{ item.legajo_logistica or '' }}"></label>
               <label>Observación<input name="{{ p }}observacion_logistica" value="{{ item.observacion_logistica or '' }}"></label>
             </div>
@@ -125,4 +125,5 @@
     <button class="btn btn-danger-soft" type="submit">Eliminar declaración</button>
   </form>
 </section>
+<script src="{{ url_for('static', filename='js/declaracion-editar.js') }}"></script>
 {% endblock %}

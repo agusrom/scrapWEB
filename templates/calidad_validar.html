@@ -39,6 +39,8 @@
     <article class="quality-review-item quality-row"
       data-item-id="{{ item.id }}"
       data-quantity="{{ item.cantidad_detectada }}"
+      data-unit="{{ item.unidad }}"
+      data-rework-resolved="{{ item.cantidad_retrabajo_resuelta }}"
       data-proposed-type="{{ 'PROVEEDOR' if item.tipo_origen == 'PROVEEDOR' else 'INTERNO' }}"
       data-proposed-sector="{{ item.sector_origen }}"
       data-proposed-cell="{{ item.celula_origen }}"
@@ -194,9 +196,9 @@
           <button type="button" data-disposition="DIVIDIR">Dividir cantidades</button>
         </div>
         <div class="disposition-fields">
-          <label>Scrap<input name="scrap_{{ item.id }}" data-qty="SCRAP" type="number" min="0" step="0.001" value="{{ '%g'|format(scrap_inicial) }}" required></label>
-          <label>Retrabajo<input name="retrabajo_{{ item.id }}" data-qty="RETRABAJO" type="number" min="0" step="0.001" value="{{ '%g'|format(retrabajo_inicial) }}" required></label>
-          <label>Liberar<input name="liberada_{{ item.id }}" data-qty="LIBERADA" type="number" min="0" step="0.001" value="{{ '%g'|format(liberada_inicial) }}" required></label>
+          <label>Scrap<input name="scrap_{{ item.id }}" data-qty="SCRAP" type="number" min="0" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" value="{{ '%g'|format(scrap_inicial) }}" required></label>
+          <label>Retrabajo<input name="retrabajo_{{ item.id }}" data-qty="RETRABAJO" type="number" min="0" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" value="{{ '%g'|format(retrabajo_inicial) }}" required></label>
+          <label>Liberar<input name="liberada_{{ item.id }}" data-qty="LIBERADA" type="number" min="0" step="{{ 1 if item.unidad == 'PZS' else '0.001' }}" max="999999999.999" value="{{ '%g'|format(liberada_inicial) }}" required></label>
           <div class="quantity-check" data-quantity-check></div>
         </div>
       </div>

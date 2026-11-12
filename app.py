@@ -8,6 +8,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 
+from validaciones import decimal_no_negativo, entero_no_negativo, validar_disposicion
+
 from dotenv import load_dotenv
 from flask import (
     Flask,
@@ -461,6 +463,11 @@ def create_app(test_config=None):
                 "AUXILIARY_DEMO_MODE", True
             )
 
+    if str(app.config["SQLALCHEMY_DATABASE_URI"]).startswith("mysql"):
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"]["isolation_level"] = "READ COMMITTED"
+    if not app.config.get("TESTING") and app.config.get("AUTH_DISABLED"):
+        raise RuntimeError("No se puede deshabilitar la autenticación en la instalación operativa.")
+
     db.init_app(app)
     with app.app_context():
         if app.config.get("TESTING"):
@@ -730,23 +737,6 @@ def numero_declaracion(declaracion):
     return f"{prefijo}-{declaracion.id:0{digitos}d}"
 
 
-def decimal_no_negativo(value, campo):
-    try:
-        numero = Decimal(str(value or "0"))
-    except (InvalidOperation, TypeError):
-        raise ValueError(f"{campo} no es válido")
-    if numero < 0:
-        raise ValueError(f"{campo} no puede ser negativo")
-    return numero
-
-
-def entero_no_negativo(value, campo):
-    numero = decimal_no_negativo(value, campo)
-    if numero != numero.to_integral_value():
-        raise ValueError(f"{campo} debe ser un número entero")
-    return int(numero)
-
-
 def requerido(value, campo):
     valor = str(value or "").strip()
     if not valor:
@@ -850,9 +840,11 @@ def filtros_reporte_scrap(args):
     mes = str(args.get("mes", "")).strip()
     desde_texto = str(args.get("desde", "")).strip()
     hasta_texto = str(args.get("hasta", "")).strip()
-    if mes and re.fullmatch(r"\d{4}-\d{2}", mes):
+    if mes and not re.fullmatch(r"[0-9]{4}-[0-9]{2}", mes):
+        mes = ""
+    if mes:
         anio, numero_mes = map(int, mes.split("-"))
-        if 1 <= numero_mes <= 12:
+        if 1 <= anio <= 9999 and 1 <= numero_mes <= 12:
             desde = date(anio, numero_mes, 1)
             hasta = date(anio, numero_mes, monthrange(anio, numero_mes)[1])
         else:
@@ -1092,10 +1084,13 @@ def cargar_item(data, motivos_validos):
     retrabajo = decimal_no_negativo(data.get("cantidad_a_retrabajo"), "la cantidad a retrabajo")
     if cantidad <= 0:
         raise ValueError("La cantidad detectada debe ser mayor a cero")
-    if not es_alerta and scrap + retrabajo != cantidad:
+    liberada = decimal_no_negativo(data.get("cantidad_liberada"), "la cantidad liberada")
+    if es_alerta and (scrap or retrabajo or liberada or data.get("retrabajo_estado", "PENDIENTE") != "PENDIENTE"):
+        raise ValueError("La disposición del material debe ser definida por Calidad")
+    if not es_alerta and scrap + retrabajo + liberada != cantidad:
         raise ValueError(
             f"En {data.get('codigo', 'un ítem')}, scrap + retrabajo debe ser igual "
-            "a la cantidad detectada"
+            "a la cantidad detectada (incluyendo las liberadas)"
         )
 
     trazabilidad = requerido(data.get("trazabilidad"), "el HCP")
@@ -1204,14 +1199,12 @@ def cargar_item(data, motivos_validos):
         trazabilidad=trazabilidad,
         operacion_codigo=operacion_codigo or None,
         operacion_descripcion=operacion_descripcion,
-        unidad=requerido(data.get("unidad", "PZS"), "la unidad"),
-        uso_estructura=decimal_no_negativo(data.get("uso", 1), "el uso de estructura"),
+        unidad=requerido(data.get("unidad", "PZS"), "la unidad").upper(),
+        uso_estructura=decimal_no_negativo(data.get("uso", 1), "el uso de estructura", escala=4),
         cantidad_detectada=cantidad,
         cantidad_scrap_directo=scrap,
         cantidad_a_retrabajo=retrabajo,
-        cantidad_liberada=decimal_no_negativo(
-            data.get("cantidad_liberada", 0), "la cantidad liberada"
-        ),
+        cantidad_liberada=liberada,
         motivo_id=motivo_id,
         sector_origen=requerido(data.get("sector_origen"), "el sector de origen"),
         celula_origen=requerido(data.get("celula_origen"), "la célula de origen"),
@@ -1299,6 +1292,8 @@ def cargar_retrabajo_inicial(item, data, motivos_validos):
 
 def crear_declaracion_desde_formulario(es_alerta=False):
     items_json = json.loads(request.form.get("items_json", "[]"))
+    if not isinstance(items_json, list) or not all(isinstance(x, dict) for x in items_json):
+        raise ValueError("La lista de piezas o materiales no es válida")
     if not items_json:
         raise ValueError("Agregá al menos una pieza o material")
 
@@ -1389,6 +1384,9 @@ def crear_declaracion_desde_formulario(es_alerta=False):
     for data in items_json:
         item = cargar_item(data, motivos_validos)
         cargar_retrabajo_inicial(item, data, motivos_validos)
+        if not es_alerta:
+            validar_disposicion(item, item.cantidad_detectada, item.cantidad_scrap_directo,
+                                item.cantidad_a_retrabajo, item.cantidad_liberada)
         declaracion.items.append(item)
 
     db.session.add(declaracion)
@@ -1417,9 +1415,6 @@ def registrar_rutas(app):
             if ahora - float(inicio) >= app.config["SESSION_MAX_AGE_SECONDS"]:
                 return True
 
-            # Renovar el tiempo por actividad
-            session["sesion_iniciada_en"] = ahora
-
             return False
 
         except (TypeError, ValueError):
@@ -1433,6 +1428,16 @@ def registrar_rutas(app):
             "ADMIN": "inicio",
         }.get(rol, "login")
 
+    def espera_json():
+        return (request.path.startswith("/api/")
+                or request.headers.get("X-Requested-With", "").lower() in {"fetch", "xmlhttprequest"}
+                or request.accept_mimetypes.best == "application/json")
+
+    def pedir_login():
+        if espera_json():
+            return jsonify(error="sesion_vencida", mensaje="La sesión venció. Ingresá nuevamente."), 401
+        return redirect(url_for("login"))
+
     @app.before_request
     def controlar_acceso():
         if app.config.get("AUTH_DISABLED"):
@@ -1442,12 +1447,7 @@ def registrar_rutas(app):
         if session.get("usuario_id") and sesion_vencida():
             session.clear()
 
-            if request.path.startswith("/api/"):
-                return jsonify({
-                    "error": "sesion_vencida"
-                }), 401
-
-            return redirect(url_for("login"))
+            return pedir_login()
         if request.endpoint in {"login", "logout"}:
             return None
 
@@ -1455,11 +1455,17 @@ def registrar_rutas(app):
         usuario = db.session.get(Usuario, usuario_id) if usuario_id else None
         if not usuario or not usuario.activo:
             session.clear()
-            return redirect(url_for("login"))
+            return pedir_login()
 
         g.usuario = usuario
+        if usuario.rol not in NOMBRES_ROL:
+            abort(403)
         if usuario.rol == "ADMIN" or request.path == "/":
             return None
+        if request.endpoint == "produccion_nueva" and usuario.rol == "PRODUCCION":
+            if request.method == "GET":
+                return redirect(url_for("produccion_alerta"))
+            abort(403)
         if request.path.startswith("/api/"):
             return None
         permisos = {
@@ -1467,7 +1473,8 @@ def registrar_rutas(app):
             "CALIDAD": ("/calidad",),
             "LOGISTICA": ("/logistica",),
         }
-        if request.path.startswith(permisos.get(usuario.rol, ())):
+        if any(request.path == prefijo or request.path.startswith(prefijo + "/")
+               for prefijo in permisos.get(usuario.rol, ())):
             return None
         abort(403)
 
@@ -1527,6 +1534,8 @@ def registrar_rutas(app):
 
     @app.errorhandler(403)
     def acceso_denegado(_error):
+        if espera_json():
+            return jsonify(error="acceso_denegado", mensaje="No tenés permiso para realizar esta acción."), 403
         return render_template("403.html"), 403
 
     @app.get("/")
@@ -1641,8 +1650,22 @@ def registrar_rutas(app):
         respuesta.headers["Cache-Control"] = "no-store"
         return respuesta
 
+    def escritura(consulta):
+        return consulta.with_for_update() if request.method == "POST" else consulta
+
+    def bloquear_por_item(item_id):
+        if request.method == "POST":
+            declaracion_id = db.session.execute(
+                db.select(DeclaracionItem.declaracion_id).where(DeclaracionItem.id == item_id)
+            ).scalar_one_or_none()
+            if declaracion_id is not None:
+                db.session.execute(db.select(Declaracion).where(
+                    Declaracion.id == declaracion_id
+                ).with_for_update()).scalar_one()
+
     @app.post("/logistica/validaciones/<int:item_id>")
     def logistica_validar_scrap(item_id):
+        bloquear_por_item(item_id)
         item = db.session.execute(
             db.select(DeclaracionItem)
             .options(selectinload(DeclaracionItem.declaracion))
@@ -1873,13 +1896,13 @@ def registrar_rutas(app):
 
     @app.route("/calidad/<int:declaracion_id>/validar", methods=["GET", "POST"])
     def calidad_validar(declaracion_id):
-        declaracion = db.session.execute(
+        declaracion = db.session.execute(escritura(
             db.select(Declaracion)
             .options(
                 selectinload(Declaracion.items).selectinload(DeclaracionItem.motivo)
             )
             .where(Declaracion.id == declaracion_id)
-        ).scalar_one_or_none()
+        )).scalar_one_or_none()
         if not declaracion:
             abort(404)
         grupos = db.session.execute(
@@ -1965,19 +1988,15 @@ def registrar_rutas(app):
                             )
                         )
                     scrap = decimal_no_negativo(
-                        request.form.get(f"scrap_{item.id}"), "la cantidad scrap"
+                        requerido(request.form.get(f"scrap_{item.id}"), "las cantidades de destino"), "la cantidad scrap"
                     )
                     retrabajo = decimal_no_negativo(
-                        request.form.get(f"retrabajo_{item.id}"), "la cantidad a retrabajo"
+                        requerido(request.form.get(f"retrabajo_{item.id}"), "las cantidades de destino"), "la cantidad a retrabajo"
                     )
                     liberada = decimal_no_negativo(
-                        request.form.get(f"liberada_{item.id}"), "la cantidad liberada"
+                        requerido(request.form.get(f"liberada_{item.id}"), "las cantidades de destino"), "la cantidad liberada"
                     )
-                    if scrap + retrabajo + liberada != item.cantidad_detectada:
-                        raise ValueError(
-                            f"El destino de {item.codigo_pieza} debe sumar "
-                            f"{item.cantidad_detectada:g}"
-                        )
+                    validar_disposicion(item, item.cantidad_detectada, scrap, retrabajo, liberada)
                     observacion_item = (
                         str(request.form.get(f"obs_item_{item.id}", "")).strip()
                         or None
@@ -2222,7 +2241,12 @@ def registrar_rutas(app):
             ])
         filtros_hoja.append(["Generado", datetime.now().strftime("%d/%m/%Y %H:%M")])
 
+        filtros_hoja.append(["Criterio de estructura", "Estructura productiva vigente al consultar; no es una estructura histórica de la DNC."])
         for planilla in libro.worksheets:
+            for fila in planilla.iter_rows():
+                for celda in fila:
+                    if isinstance(celda.value, str):
+                        celda.data_type = "s"
             planilla.freeze_panes = "A2"
             planilla.auto_filter.ref = planilla.dimensions
             for celda in planilla[1]:
@@ -2343,7 +2367,7 @@ def registrar_rutas(app):
         return redirect(url_for("declaracion_detalle", declaracion_id=declaracion.id))
 
     def cargar_declaracion_detallada(declaracion_id):
-        return db.session.execute(
+        return db.session.execute(escritura(
             db.select(Declaracion)
             .options(
                 selectinload(Declaracion.items).selectinload(DeclaracionItem.motivo),
@@ -2352,7 +2376,7 @@ def registrar_rutas(app):
                 .selectinload(RetrabajoIntervencion.motivo_scrap),
             )
             .where(Declaracion.id == declaracion_id)
-        ).scalar_one_or_none()
+        )).scalar_one_or_none()
 
     @app.get("/declaraciones/<int:declaracion_id>")
     @app.get("/vales/<int:declaracion_id>")
@@ -2405,6 +2429,7 @@ def registrar_rutas(app):
         return redirect(url_for("declaraciones"))
 
     def actualizar_declaracion_admin(declaracion, motivos_validos):
+        era_alerta = declaracion.estado == "PENDIENTE_CALIDAD"
         declaracion.fecha = date.fromisoformat(
             requerido(request.form.get("fecha"), "la fecha")
         )
@@ -2448,6 +2473,8 @@ def registrar_rutas(app):
         tipos_origen_validos = {"INTERNO", "PROVEEDOR", "DESCONOCIDO"}
 
         for item in declaracion.items:
+            identidad_anterior = (item.codigo_pieza, item.trazabilidad, item.operacion_codigo)
+            scrap_anterior = item.cantidad_scrap_directo
             prefijo = f"item_{item.id}_"
             tipo_material = requerido(
                 request.form.get(prefijo + "tipo_material"), "el tipo de material"
@@ -2481,14 +2508,16 @@ def registrar_rutas(app):
             item.unidad = requerido(
                 request.form.get(prefijo + "unidad"), "la unidad"
             ).upper()
-            cantidad = entero_no_negativo(
-                request.form.get(prefijo + "cantidad_detectada"),
+            cantidad = decimal_no_negativo(
+                requerido(request.form.get(prefijo + "cantidad_detectada"), "la cantidad informada"),
                 f"la cantidad de {item.codigo_pieza}",
             )
             if cantidad <= 0:
                 raise ValueError(
                     f"La cantidad de {item.codigo_pieza} debe ser mayor a cero"
                 )
+            if item.unidad == "PZS":
+                entero_no_negativo(cantidad, "La cantidad de piezas")
             item.cantidad_detectada = cantidad
 
             motivo_id = int(request.form.get(prefijo + "motivo_id", 0))
@@ -2518,29 +2547,20 @@ def registrar_rutas(app):
                 or None
             )
 
-            if declaracion.fecha_validacion:
-                scrap = entero_no_negativo(
-                    request.form.get(prefijo + "cantidad_scrap_directo"),
+            if declaracion.fecha_validacion or declaracion.estado != "PENDIENTE_CALIDAD":
+                scrap = decimal_no_negativo(
+                    requerido(request.form.get(prefijo + "cantidad_scrap_directo"), "las cantidades de destino"),
                     f"el scrap de {item.codigo_pieza}",
                 )
-                retrabajo = entero_no_negativo(
-                    request.form.get(prefijo + "cantidad_a_retrabajo"),
+                retrabajo = decimal_no_negativo(
+                    requerido(request.form.get(prefijo + "cantidad_a_retrabajo"), "las cantidades de destino"),
                     f"el retrabajo de {item.codigo_pieza}",
                 )
-                liberada = entero_no_negativo(
-                    request.form.get(prefijo + "cantidad_liberada"),
+                liberada = decimal_no_negativo(
+                    requerido(request.form.get(prefijo + "cantidad_liberada"), "las cantidades de destino"),
                     f"la cantidad liberada de {item.codigo_pieza}",
                 )
-                if scrap + retrabajo + liberada != cantidad:
-                    raise ValueError(
-                        f"En {item.codigo_pieza}, scrap + retrabajo + liberadas "
-                        "debe ser igual a la cantidad informada"
-                    )
-                if Decimal(retrabajo) < item.cantidad_retrabajo_resuelta:
-                    raise ValueError(
-                        f"El retrabajo de {item.codigo_pieza} no puede ser menor "
-                        "que la cantidad que ya fue procesada"
-                    )
+                validar_disposicion(item, cantidad, scrap, retrabajo, liberada)
                 item.cantidad_scrap_directo = scrap
                 item.cantidad_a_retrabajo = retrabajo
                 item.cantidad_liberada = liberada
@@ -2625,11 +2645,16 @@ def registrar_rutas(app):
             requiere_logistica = request.form.get(
                 prefijo + "requiere_validacion_logistica"
             ) == "1"
+            requiere_logistica = requiere_logistica and item.cantidad_scrap_directo > 0
+            cambio_control = (scrap_anterior != item.cantidad_scrap_directo or
+                              identidad_anterior != (item.codigo_pieza, item.trazabilidad, item.operacion_codigo))
             item.requiere_validacion_logistica = requiere_logistica
             if requiere_logistica:
                 cantidad_logistica_texto = str(request.form.get(
                     prefijo + "cantidad_scrap_validada_logistica", ""
                 )).strip()
+                if cambio_control:
+                    cantidad_logistica_texto = ""
                 if cantidad_logistica_texto:
                     item.cantidad_scrap_validada_logistica = entero_no_negativo(
                         cantidad_logistica_texto,
@@ -2649,13 +2674,19 @@ def registrar_rutas(app):
                     str(request.form.get(prefijo + "observacion_logistica", "")).strip()
                     or None
                 )
+                if cambio_control:
+                    item.observacion_logistica = None
+                if (item.cantidad_scrap_validada_logistica is not None
+                    and item.cantidad_scrap_validada_logistica != item.cantidad_scrap_directo
+                    and not item.observacion_logistica):
+                    raise ValueError("Explicá la diferencia entre la cantidad de Calidad y la recibida")
             else:
                 item.cantidad_scrap_validada_logistica = None
                 item.legajo_logistica = None
                 item.fecha_validacion_logistica = None
                 item.observacion_logistica = None
 
-        if declaracion.fecha_validacion:
+        if declaracion.fecha_validacion or not era_alerta:
             actualizar_estado(declaracion)
         else:
             declaracion.estado = "PENDIENTE_CALIDAD"
@@ -2769,6 +2800,7 @@ def registrar_rutas(app):
         "/produccion/retrabajos/<int:item_id>/registrar", methods=["GET", "POST"]
     )
     def registrar_retrabajo(item_id):
+        bloquear_por_item(item_id)
         vista_produccion = request.path.startswith("/produccion/")
         plantilla = (
             "produccion_retrabajo_registrar.html"
@@ -2790,6 +2822,8 @@ def registrar_rutas(app):
 
         if request.method == "POST":
             try:
+                if item.declaracion.estado == "PENDIENTE_CALIDAD":
+                    raise ValueError("Calidad debe definir el destino antes de registrar un retrabajo")
                 if item.cantidad_retrabajo_pendiente <= 0:
                     raise ValueError("Este retrabajo ya está cerrado")
                 cantidad_ok = entero_no_negativo(
