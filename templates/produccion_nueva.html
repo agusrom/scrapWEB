@@ -1,6 +1,6 @@
-{% extends "base_produccion.html" %}
+{% extends base_formulario|default("base_produccion.html") %}
 {% block title %}{{ 'Alerta de material no conforme' if modo == 'ALERTA' else ('Scrap' if modo == 'SCRAP' else 'Retrabajo') }}{% endblock %}
-{% block body_class %}mode-{{ modo|lower }}{% endblock %}
+{% block body_class %}{{ 'production-body ' if scrap_calidad }}mode-{{ modo|lower }}{% endblock %}
 {% block content %}
 <div class="wizard-head">
   <div>
@@ -25,7 +25,11 @@
 </div>
 {% endif %}
 
-<form method="post" id="production-form" data-modo="{{ modo }}" data-hoy="{{ hoy.isoformat() }}" data-digitos="{{ config.TRAZABILIDAD_DIGITOS }}">
+{% if scrap_calidad %}
+<div class="alert alert-warning">Scrap generado por Calidad. Solo se admite la célula Calidad; la disposición queda validada al guardar. Las piezas configuradas pasan al control de Logística.</div>
+{% endif %}
+
+<form method="post" id="production-form" data-scrap-calidad="{{ 'true' if scrap_calidad else 'false' }}" data-modo="{{ modo }}" data-hoy="{{ hoy.isoformat() }}" data-digitos="{{ config.TRAZABILIDAD_DIGITOS }}">
   <section class="wizard-step active" data-step="1">
     <div class="wizard-section-title"><span>1</span><div><h2>¿Quién encontró el problema?</h2><p>Completá los datos de la declaración.</p></div></div>
     <div class="production-form-grid">
@@ -84,10 +88,14 @@
   </section>
 
   <section class="wizard-step" data-step="3">
-    <div class="wizard-section-title"><span>3</span><div><h2>¿A quién corresponde el problema?</h2><p>Ahora que ya están los renglones, asigná un responsable común o uno por pieza.</p></div></div>
+    <div class="wizard-section-title"><span>3</span><div><h2>¿A quién corresponde el problema?</h2><p>{{ 'El origen de estos ensayos es la propia célula Calidad.' if scrap_calidad else 'Ahora que ya están los renglones, asigná un responsable común o uno por pieza.' }}</p></div></div>
+    {% if scrap_calidad %}
+    <div class="alert alert-warning">Origen y responsabilidad: célula Calidad. El scrap corresponde a los ensayos informados en cada renglón.</div>
+    {% endif %}
+    <div class="{{ 'hidden' if scrap_calidad else '' }}">
     <div class="responsibility-mode-grid">
       <label class="responsibility-mode">
-        <input type="radio" name="responsabilidad_modo" value="COMUN">
+        <input type="radio" name="responsabilidad_modo" value="COMUN" {{ 'checked' if scrap_calidad }}>
         <span>GENERAL</span><b>El mismo para todas</b>
         <small>Cargás el responsable una sola vez.</small>
       </label>
@@ -101,10 +109,10 @@
     <div class="conditional-box hidden" id="responsable-comun-box">
       <h3>Responsable para todos los renglones</h3>
       <div class="origin-simple-grid compact-origin-grid">
-        <label class="origin-simple"><input type="radio" name="origen_simple" value="MISMA"><b>Esta célula</b><small>Donde se detectó.</small></label>
+        <label class="origin-simple"><input type="radio" name="origen_simple" value="MISMA" {{ 'checked' if scrap_calidad }}><b>Esta célula</b><small>Donde se detectó.</small></label>
         <label class="origin-simple"><input type="radio" name="origen_simple" value="OTRA"><b>Otra célula</b><small>Proceso anterior.</small></label>
         <label class="origin-simple supplier-origin"><input type="radio" name="origen_simple" value="PROVEEDOR"><b>Proveedor</b><small>Material recibido.</small></label>
-        <label class="origin-simple selected"><input type="radio" name="origen_simple" value="DESCONOCIDO" checked><b>No asignar todavía</b><small>Queda pendiente.</small></label>
+        <label class="origin-simple selected"><input type="radio" name="origen_simple" value="DESCONOCIDO" {{ 'checked' if not scrap_calidad }}><b>No asignar todavía</b><small>Queda pendiente.</small></label>
       </div>
       <div class="conditional-box nested-box hidden" id="otra-origen">
         <div class="production-form-grid">
@@ -127,6 +135,7 @@
       </div>
     </div>
     <div id="responsibility-items" class="responsibility-items hidden"></div>
+    </div>
   </section>
 
   <section class="wizard-step" data-step="4">

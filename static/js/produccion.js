@@ -1,6 +1,7 @@
 (() => {
   const form = document.querySelector("#production-form");
   const modo = form.dataset.modo;
+  const scrapCalidad = form.dataset.scrapCalidad === "true";
   const digitos = Number(form.dataset.digitos || 6);
   const buscador = document.querySelector("#prod-buscador");
   const resultados = document.querySelector("#prod-resultados");
@@ -54,6 +55,10 @@
       : "Primero elegí el turno";
     unidadLabel.textContent = "Unidad de gestión: —";
     reiniciarEquipo();
+    if (scrapCalidad && habilitar && celulaSelect.options.length === 2) {
+      celulaSelect.selectedIndex = 1;
+      celulaSelect.dispatchEvent(new Event("change", {bubbles: true}));
+    }
   });
 
   celulaSelect.addEventListener("change", async () => {
@@ -330,6 +335,7 @@
   function paso2Completo() {
     if (!items.length) return false;
     return items.every(item => {
+      if (scrapCalidad && !String(item.observacion || "").trim()) return false;
       if (!new RegExp(`^\\d{${digitos}}$`).test(item.trazabilidad || "") ||
           item.hcp_estado !== "VALIDO" ||
           item.operaciones_estado !== "LISTO" ||
@@ -392,6 +398,10 @@
       return false;
     }
     for (const item of items) {
+      if (scrapCalidad && !String(item.observacion || "").trim()) {
+        aviso(`Indicá el ensayo o motivo del scrap de ${item.codigo}.`);
+        return false;
+      }
       if (!new RegExp(`^\\d{${digitos}}$`).test(item.trazabilidad || "") ||
           numero(item.cantidad) <= 0 || !item.grupo_id || !item.motivo_id) {
         aviso(`Revisá HCP, cantidad, grupo y causa de ${item.codigo}.`);
@@ -1048,9 +1058,9 @@
           <label class="group-field">Grupo<select data-field="grupo_id" data-searchable data-no-auto-next>${opcionesGrupos(item.grupo_id)}</select></label>
           <label class="cause-field">Causa<select data-field="motivo_id" data-searchable data-no-auto-next ${item.grupo_id ? "" : "disabled"}>${opcionesCausas(item.grupo_id, item.motivo_id)}</select></label>
           ${renderAfectado(item)}
-          <label class="row-observation-field ${requiereAfectado ? "" : "full"}">Observaciones del renglón
+          <label class="row-observation-field ${requiereAfectado ? "" : "full"}">${scrapCalidad ? "Indicación de Calidad (obligatoria)" : "Observaciones del renglón"}
             <input data-field="observacion" value="${esc(item.observacion)}"
-              maxlength="255" placeholder="Ej.: componente con rajaduras">
+              maxlength="255" ${scrapCalidad ? "required" : ""} placeholder="${scrapCalidad ? "Ej.: corte de probeta para ensayo de soldadura" : "Ej.: componente con rajaduras"}">
           </label>
         </div>
       </article>`;
@@ -1551,6 +1561,12 @@
   }
 
   function origenGeneral() {
+    if (scrapCalidad) return {
+      tipo_origen: "INTERNO", tipo_imputacion: "CONFIRMADA",
+      sector_origen: celulaSelect.selectedOptions[0]?.dataset.unidad || "Calidad",
+      celula_origen: celulaSelect.value, operacion_origen: "Ensayos de Calidad",
+      legajo_origen: form.elements.legajo_declara.value.trim()
+    };
     if (modoResponsabilidad() === "POR_PIEZA") {
       return {
         tipo_origen: "DESCONOCIDO", sector_origen: "No determinado",
@@ -1604,6 +1620,7 @@
   }
 
   function origenDelItem(item, general) {
+    if (scrapCalidad) return general;
     if (modoResponsabilidad() === "COMUN") return general;
     if (!item.responsable_modo || item.responsable_modo === "GENERAL") return general;
     if (item.responsable_modo === "MISMA") {

@@ -4,6 +4,7 @@
 <div class="page-head">
   <div><span class="eyebrow">Calidad</span><h1>Material no conforme</h1><p>Primero resolvé el material; la responsabilidad puede investigarse después.</p></div>
   <div class="quality-live-tools">
+    <a class="btn btn-primary" href="{{ url_for('calidad_scrap_nuevo') }}">＋ Declarar scrap</a>
     <span class="quality-counter" id="quality-counter">{{ alertas|length }} por decidir</span>
     <span class="quality-live-status online" id="quality-live-status"><i></i><span>Actualización automática</span></span>
     <button type="button" class="simple-secondary quality-refresh-button" id="quality-refresh">Actualizar ahora</button>

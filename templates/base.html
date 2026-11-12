@@ -6,13 +6,14 @@
   <title>{% block title %}Material no conforme{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <div class="app-shell">
   <aside class="system-sidebar no-print">
     <a class="sidebar-brand" href="{{ url_for('calidad_bandeja' if rol_actual == 'CALIDAD' else 'inicio') }}">NC</a>
     <nav>
       {% if rol_actual == 'CALIDAD' %}
       <a class="{{ 'active' if request.path == '/calidad' or '/validar' in request.path }}" href="{{ url_for('calidad_bandeja') }}"><span>✓</span><small>Calidad</small></a>
+      <a class="{{ 'active' if request.path == '/calidad/scrap/nuevo' }}" href="{{ url_for('calidad_scrap_nuevo') }}"><span>＋</span><small>Declarar scrap</small></a>
       <a class="{{ 'active' if request.path.startswith('/calidad/declaraciones') }}" href="{{ url_for('calidad_declaraciones') }}"><span>▤</span><small>Declaraciones</small></a>
       {% else %}
       <a class="{{ 'active' if request.path == '/gestion' }}" href="{{ url_for('inicio') }}"><span>⌂</span><small>Inicio</small></a>

@@ -1071,11 +1071,21 @@ def opciones_formulario(incluir_turnos=False):
     }
 
 
-def cargar_item(data, motivos_validos):
+def es_carga_operativa():
+    return (request.path.startswith(("/produccion/", "/logistica/"))
+            or request.endpoint == "calidad_scrap_nuevo")
+
+
+def celulas_scrap_calidad():
+    return [celula for celula in celulas_activas()
+            if celula.nombre.strip().casefold() == "calidad"]
+
+
+def cargar_item(data, motivos_validos, scrap_calidad=False):
     es_alerta = request.path in {"/produccion/alerta", "/logistica/informe"}
     cantidad = (
         entero_no_negativo(data.get("cantidad_detectada"), "la cantidad detectada")
-        if es_alerta
+        if es_alerta or scrap_calidad
         else decimal_no_negativo(
             data.get("cantidad_detectada"), "la cantidad detectada"
         )
@@ -1093,6 +1103,10 @@ def cargar_item(data, motivos_validos):
             "a la cantidad detectada (incluyendo las liberadas)"
         )
 
+    if scrap_calidad and (scrap != cantidad or retrabajo or liberada
+                          or data.get("retrabajo_estado", "PENDIENTE") != "PENDIENTE"):
+        raise ValueError("La declaración directa de Calidad debe destinar toda la cantidad a scrap")
+
     trazabilidad = requerido(data.get("trazabilidad"), "el HCP")
     digitos = int(config_valor("TRAZABILIDAD_DIGITOS", "6"))
     if not re.fullmatch(rf"\d{{{digitos}}}", trazabilidad):
@@ -1102,6 +1116,8 @@ def cargar_item(data, motivos_validos):
     if motivo_id not in motivos_validos:
         raise ValueError("Uno de los motivos seleccionados no es válido")
     motivo = db.session.get(Motivo, motivo_id)
+    if scrap_calidad and (not motivo.grupo or not motivo.grupo.activo):
+        raise ValueError("El grupo de la causa seleccionada no está habilitado")
     grupo_id = int(data.get("grupo_id") or motivo.grupo_id or 0)
     if not motivo.grupo_id or motivo.grupo_id != grupo_id:
         raise ValueError(
@@ -1115,7 +1131,7 @@ def cargar_item(data, motivos_validos):
     afectado_componente_codigo = (
         str(data.get("afectado_componente_codigo", "")).strip() or None
     )
-    if request.path.startswith(("/produccion/", "/logistica/")):
+    if es_carga_operativa():
         if motivo.tipo_accion == "COMPONENTE":
             if afectado_tipo != "COMPONENTE" or not afectado_codigo:
                 raise ValueError(
@@ -1142,7 +1158,7 @@ def cargar_item(data, motivos_validos):
     codigo_pieza = requerido(data.get("codigo"), "el código de pieza/material")
     operacion_codigo = str(data.get("operacion_codigo", "")).strip()
     operacion_descripcion = None
-    if request.path.startswith(("/produccion/", "/logistica/")):
+    if es_carga_operativa():
         operaciones_disponibles = listar_operaciones_pieza(codigo_pieza)
         if operaciones_disponibles:
             operacion = next(
@@ -1290,17 +1306,22 @@ def cargar_retrabajo_inicial(item, data, motivos_validos):
     )
 
 
-def crear_declaracion_desde_formulario(es_alerta=False):
+def crear_declaracion_desde_formulario(es_alerta=False, scrap_calidad=False):
     items_json = json.loads(request.form.get("items_json", "[]"))
     if not isinstance(items_json, list) or not all(isinstance(x, dict) for x in items_json):
         raise ValueError("La lista de piezas o materiales no es válida")
     if not items_json:
         raise ValueError("Agregá al menos una pieza o material")
 
-    es_carga_produccion = request.path.startswith(
-        ("/produccion/", "/logistica/")
-    )
+    es_carga_produccion = es_carga_operativa()
     celula_nombre = requerido(request.form.get("celula_detecta"), "la célula")
+    if scrap_calidad:
+        habilitadas = celulas_scrap_calidad()
+        if len(habilitadas) != 1:
+            raise ValueError("Debe haber una única célula Calidad activa dentro de una unidad habilitada")
+        if celula_nombre.casefold() != habilitadas[0].nombre.strip().casefold():
+            raise ValueError("Calidad solo puede declarar scrap desde la célula Calidad")
+        celula_nombre = habilitadas[0].nombre
     unidad_gestion = None
     celula_codigo_equipos = None
     turno_id = None
@@ -1382,7 +1403,22 @@ def crear_declaracion_desde_formulario(es_alerta=False):
         ).scalars()
     }
     for data in items_json:
-        item = cargar_item(data, motivos_validos)
+        if scrap_calidad:
+            data = {**data, "tipo_origen": "INTERNO", "tipo_imputacion": "CONFIRMADA",
+                    "sector_origen": unidad_gestion, "celula_origen": celula_nombre,
+                    "operacion_origen": "Ensayos de Calidad", "legajo_origen": declaracion.legajo_declara,
+                    "proveedor_numero": "", "remito": ""}
+        item = cargar_item(data, motivos_validos, scrap_calidad=scrap_calidad)
+        if scrap_calidad:
+            item.responsabilidad_estado = "CONFIRMADA"
+            item.responsable_tipo = "INTERNO"
+            item.responsable_sector = unidad_gestion
+            item.responsable_celula = celula_nombre
+            item.responsable_operacion = "Ensayos de Calidad"
+            item.responsable_legajo = declaracion.legajo_declara
+            item.observacion_calidad = requerido(data.get("observacion"), "el ensayo o motivo del scrap")
+            if len(item.observacion_calidad) > 255:
+                raise ValueError("La indicación de Calidad no puede superar los 255 caracteres")
         cargar_retrabajo_inicial(item, data, motivos_validos)
         if not es_alerta:
             validar_disposicion(item, item.cantidad_detectada, item.cantidad_scrap_directo,
@@ -1392,6 +1428,12 @@ def crear_declaracion_desde_formulario(es_alerta=False):
     db.session.add(declaracion)
     db.session.flush()
     declaracion.numero = numero_declaracion(declaracion)
+    if scrap_calidad:
+        declaracion.legajo_calidad = declaracion.legajo_declara
+        declaracion.fecha_validacion = datetime.now()
+        declaracion.observaciones_calidad = "Scrap declarado directamente por Calidad."
+        for item in declaracion.items:
+            actualizar_control_logistica(item)
     if es_alerta:
         declaracion.estado = "PENDIENTE_CALIDAD"
         for item in declaracion.items:
@@ -1762,6 +1804,31 @@ def registrar_rutas(app):
     @app.route("/logistica/informe", methods=["GET", "POST"])
     def logistica_informe():
         return formulario_alerta()
+
+    @app.route("/calidad/scrap/nuevo", methods=["GET", "POST"])
+    def calidad_scrap_nuevo():
+        contexto = opciones_formulario(incluir_turnos=True)
+        contexto["celulas"] = celulas_scrap_calidad()
+        contexto.update(scrap_calidad=True, base_formulario="base.html")
+        if len(contexto["celulas"]) != 1:
+            flash("Debe haber una única célula Calidad activa dentro de una unidad habilitada.", "error")
+        if request.method == "POST":
+            try:
+                declaracion = crear_declaracion_desde_formulario(scrap_calidad=True)
+            except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+                db.session.rollback()
+                # Los detalles de validación se muestran en español sin excepciones técnicas.
+                flash("No se pudo declarar el scrap. Revisá la célula, el equipo, las piezas, cantidades, causas y HCP.", "error")
+                return render_template("produccion_nueva.html", hoy=date.today(), modo="SCRAP", **contexto), 400
+            except Exception:
+                db.session.rollback()
+                app.logger.exception("No se pudo declarar scrap desde Calidad")
+                flash("No se pudo guardar el scrap. Intentá nuevamente.", "error")
+                return render_template("produccion_nueva.html", hoy=date.today(), modo="SCRAP", **contexto), 500
+            flash(f"{declaracion.numero} registrada y validada por Calidad", "ok")
+            return redirect(url_for("calidad_bandeja", imprimir=declaracion.id,
+                                    revision=int(declaracion.fecha_validacion.timestamp() * 1000)))
+        return render_template("produccion_nueva.html", hoy=date.today(), modo="SCRAP", **contexto)
 
     @app.route("/produccion/nueva/<modo>", methods=["GET", "POST"])
     def produccion_nueva(modo):

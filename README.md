@@ -403,3 +403,10 @@ Las validaciones y pruebas de robustez, los permisos afectados, el criterio
 histórico de los reportes y las instrucciones de prueba con MySQL están en
 [docs/revision-integridad.md](docs/revision-integridad.md).
 No se requieren migraciones para estas correcciones.
+
+## Scrap generado por ensayos de Calidad
+
+Calidad puede usar **Declarar scrap** para registrar sus ensayos desde la célula
+Calidad, con validación inmediata. La DNC queda cerrada o pendiente de Logística
+según la configuración de cada pieza. No requiere migración MySQL. Ver
+[el flujo, restricciones y pruebas](docs/scrap-directo-calidad.md).
