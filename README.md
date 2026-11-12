@@ -410,3 +410,12 @@ Calidad puede usar **Declarar scrap** para registrar sus ensayos desde la célul
 Calidad, con validación inmediata. La DNC queda cerrada o pendiente de Logística
 según la configuración de cada pieza. No requiere migración MySQL. Ver
 [el flujo, restricciones y pruebas](docs/scrap-directo-calidad.md).
+
+## Consulta y análisis de scrap frente a producción
+
+Administración puede crear usuarios `CONSULTA` desde Usuarios y accesos. El panel
+**Análisis** compara scrap con piezas buenas por código y operación, permite
+consultar causas, tendencias y resultados de retrabajo, y exportar a Excel sin
+modificar información. La fuente productiva y los límites del cálculo están en
+[docs/analisis-consulta.md](docs/analisis-consulta.md). No requiere migración de
+estructura ni crea cuentas automáticamente al arrancar.
